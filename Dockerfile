@@ -1,4 +1,4 @@
-FROM alpine:3.10 as html-builder
+FROM alpine:3 as html-builder
 
 RUN apk update && apk add brotli
 
@@ -8,10 +8,11 @@ COPY html/index.html /html
 RUN gzip -9 -k /html/*html
 RUN brotli -Z /html/*html
 
+# Get latest version:
+# docker run --rm nginx sh -c 'echo $NGINX_VERSION'
+FROM nginx:1.21.1-alpine AS builder
 
-FROM nginx:1.17.9-alpine AS builder
-
-ENV NGX_MODULE_COMMIT 0fdca2565dbedb88101ca19b1fb1511272f0821f
+ENV NGX_MODULE_COMMIT 9aec15e2aa6feea2113119ba06460af70ab3ea62
 ENV NGX_MODULE_PATH ngx_brotli
 
 RUN wget "http://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" -O nginx.tar.gz && \
@@ -42,13 +43,13 @@ RUN CONFARGS=$(nginx -V 2>&1 | sed -n -e 's/^.*arguments: //p') \
   tar -zxf nginx.tar.gz && \
   tar -xzf "${NGX_MODULE_PATH}.tar.gz" && \
   cd nginx-$NGINX_VERSION && \
-  ./configure --with-compat $CONFARGS --add-dynamic-module="$(pwd)/../${NGX_MODULE_PATH}-${NGX_MODULE_COMMIT}" && \
+  ./configure --with-compat $CONFARGS --with-http_mp4_module --add-dynamic-module="$(pwd)/../${NGX_MODULE_PATH}-${NGX_MODULE_COMMIT}" && \
   make && make install
 
 # save /usr/lib/*so deps
 RUN mkdir /so-deps && cp -L $(ldd /usr/local/nginx/modules/ngx_http_brotli_filter_module.so 2>/dev/null | grep '/usr/lib/' | awk '{ print $3 }' | tr '\n' ' ') /so-deps
 
-FROM nginx:1.17.9-alpine
+FROM nginx:1.21.1-alpine
 
 COPY --from=builder  /so-deps /usr/lib
 COPY --from=builder  /usr/local/nginx/modules/ngx_http_brotli_filter_module.so /usr/local/nginx/modules/ngx_http_brotli_filter_module.so
